@@ -1,0 +1,136 @@
+import { useState, useRef } from 'react'
+import { uploadUpd } from '../services/api'
+import { ResultsTable } from '../components/ResultsTable'
+import type { UpdUploadResponse } from '../types'
+
+export function UploadUpdPage() {
+  const [file, setFile] = useState<File | null>(null)
+  const [response, setResponse] = useState<UpdUploadResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [dragging, setDragging] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  async function handleUpload() {
+    if (!file) return
+    setLoading(true)
+    setError('')
+    try {
+      const result = await uploadUpd(file)
+      setResponse(result)
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragging(false)
+    const f = e.dataTransfer.files[0]
+    if (f) setFile(f)
+  }
+
+  return (
+    <div>
+      <h2>Загрузка УПД (формат Приказа №970 ФНС)</h2>
+
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        style={{
+          border: `2px dashed ${dragging ? '#1a237e' : '#ccc'}`,
+          borderRadius: 8,
+          padding: 40,
+          textAlign: 'center',
+          cursor: 'pointer',
+          background: dragging ? '#e8eaf6' : '#fafafa',
+          marginBottom: 16,
+        }}
+      >
+        {file ? (
+          <div>
+            <strong>{file.name}</strong> ({(file.size / 1024).toFixed(1)} KB)
+            <br />
+            <button onClick={e => { e.stopPropagation(); setFile(null) }}
+              style={{ marginTop: 8, ...smallBtnStyle }}>
+              Удалить
+            </button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
+            <div>Перетащите XML-файл УПД сюда или нажмите для выбора</div>
+          </div>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".xml"
+          hidden
+          onChange={e => setFile(e.target.files?.[0] || null)}
+        />
+      </div>
+
+      <button onClick={handleUpload} disabled={loading || !file}
+        style={btnStyle}>
+        {loading ? 'Загрузка и проверка...' : 'Отправить и проверить коды'}
+      </button>
+
+      {error && (
+        <div style={{ color: '#c62828', marginTop: 12 }}>Ошибка: {error}</div>
+      )}
+
+      {response && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{
+            padding: 12,
+            background: '#e3f2fd',
+            borderRadius: 6,
+            marginBottom: 12,
+            fontSize: 14,
+          }}>
+            <strong>Документ:</strong>{' '}
+            {response.document.number || '—'} от {response.document.date || '—'}
+            <br />
+            <strong>Продавец:</strong> {response.document.seller || '—'}
+            <br />
+            <strong>Покупатель:</strong> {response.document.buyer || '—'}
+            <br />
+            <strong>Найдено кодов:</strong> {response.codesFound}
+            <br />
+            <strong>Результаты:</strong> всего {response.results.total},
+            ✅ {response.results.validCount},
+            ❌ {response.results.invalidCount},
+            ⚠️ {response.results.errorCount}
+          </div>
+
+          <ResultsTable results={response.results.results} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+const btnStyle: React.CSSProperties = {
+  background: '#1565c0',
+  color: 'white',
+  border: 'none',
+  borderRadius: 6,
+  padding: '10px 20px',
+  cursor: 'pointer',
+  fontSize: 14,
+}
+
+const smallBtnStyle: React.CSSProperties = {
+  background: '#e53935',
+  color: 'white',
+  border: 'none',
+  borderRadius: 4,
+  padding: '4px 12px',
+  cursor: 'pointer',
+  fontSize: 12,
+}
