@@ -142,6 +142,17 @@ GET https://mobile.api.crpt.ru/mobile/check?code=0104640507713421215TxdVFoOB.zFF
   - 8.3. `docker-compose.yml` — сервисы `backend`, `frontend`, общая сеть
   - 8.4. README с инструкцией по запуску (`docker-compose up --build`)
 
+- [x] 9. **Переключение контура (sandbox/prod) из UI**
+  - 9.1. Backend: два набора URL (`envUrls`) в `config.ts`, per-env кеш токенов
+  - 9.2. Backend: все сервисы и роуты принимают `?env=sandbox|prod`
+  - 9.3. Frontend: `<select>` в хедере, `getEnv()`/`setEnv()` в модуле API
+  - 9.4. QA-доработки:
+    - `onUnauthorized` передаёт env — логаут правильного контура при 401
+    - `window.confirm` при переключении на промышленный контур
+    - `setPage('auth')` при смене env
+    - `getAuthStatus` при переключении — восстановление `authenticated` если токен жив
+    - `uploadUpd` через общий `request()` (устранено дублирование)
+
 ## Затрагиваемые сервисы
 
 - `backend/` — Fastify/Express backend с модулями:

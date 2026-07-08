@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { checkCodesPublic, checkCodesAuth } from '../services/api'
+import type { RequestError } from '../services/api'
 import { ResultsTable } from '../components/ResultsTable'
 import type { CodeResult } from '../types'
 
@@ -8,6 +9,8 @@ export function CheckCodesPage() {
   const [results, setResults] = useState<CodeResult[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [errorDebug, setErrorDebug] = useState<string | null>(null)
+  const [debugExpanded, setDebugExpanded] = useState(false)
 
   async function handleCheck(mode: 'public' | 'auth') {
     const codes = codesInput
@@ -22,12 +25,18 @@ export function CheckCodesPage() {
 
     setLoading(true)
     setError('')
+    setErrorDebug(null)
+    setDebugExpanded(false)
     try {
       const fn = mode === 'public' ? checkCodesPublic : checkCodesAuth
       const response = await fn(codes)
       setResults(response.results)
     } catch (err) {
-      setError(String(err))
+      const re = err as RequestError
+      setError(re.message)
+      if (re.debugInfo) {
+        setErrorDebug(JSON.stringify(re.debugInfo, null, 2))
+      }
     } finally {
       setLoading(false)
     }
@@ -67,6 +76,41 @@ export function CheckCodesPage() {
 
       {error && (
         <div style={{ color: '#c62828', marginBottom: 12 }}>Ошибка: {error}</div>
+      )}
+
+      {errorDebug && (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            onClick={() => setDebugExpanded(!debugExpanded)}
+            style={{
+              background: 'transparent',
+              border: '1px solid #b0bec5',
+              borderRadius: 4,
+              padding: '6px 12px',
+              cursor: 'pointer',
+              fontSize: 13,
+              color: '#37474f',
+            }}
+          >
+            {debugExpanded ? '▼ Скрыть лог запроса к API маркировки' : '▶ Показать лог запроса к API маркировки'}
+          </button>
+          {debugExpanded && (
+            <pre style={{
+              marginTop: 8,
+              padding: 12,
+              background: '#263238',
+              color: '#e0e0e0',
+              borderRadius: 6,
+              fontSize: 12,
+              lineHeight: 1.5,
+              overflowX: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+            }}>
+              {errorDebug}
+            </pre>
+          )}
+        </div>
       )}
 
       {results && (

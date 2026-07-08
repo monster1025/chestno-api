@@ -1,29 +1,32 @@
 import NodeCache from 'node-cache'
 import { config } from '../config.js'
+import type { TrueApiEnv } from '../config.js'
 
 const cache = new NodeCache({
   stdTTL: config.trueApi.tokenTTL / 1000,
   checkperiod: 600,
 })
 
-const TOKEN_KEY = 'true_api_token'
-
-export function getToken(): string | undefined {
-  return cache.get<string>(TOKEN_KEY)
+function tokenKey(env: TrueApiEnv): string {
+  return `true_api_token_${env}`
 }
 
-export function setToken(token: string): void {
-  cache.set(TOKEN_KEY, token)
+export function getToken(env: TrueApiEnv): string | undefined {
+  return cache.get<string>(tokenKey(env))
 }
 
-export function hasToken(): boolean {
-  return cache.has(TOKEN_KEY)
+export function setToken(env: TrueApiEnv, token: string): void {
+  cache.set(tokenKey(env), token)
 }
 
-export function getTokenTTL(): number | undefined {
-  return cache.getTtl(TOKEN_KEY)
+export function hasToken(env: TrueApiEnv): boolean {
+  return cache.has(tokenKey(env))
 }
 
-export function invalidateToken(): void {
-  cache.del(TOKEN_KEY)
+export function getTokenTTL(env: TrueApiEnv): number | undefined {
+  return cache.getTtl(tokenKey(env))
+}
+
+export function invalidateToken(env: TrueApiEnv): void {
+  cache.del(tokenKey(env))
 }

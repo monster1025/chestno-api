@@ -5,6 +5,7 @@ import { config } from './config.js'
 import { authRoutes } from './routes/auth.js'
 import { cisesRoutes } from './routes/cises.js'
 import { updRoutes } from './routes/upd.js'
+import { plansRoutes } from './routes/plans.js'
 
 const app = Fastify({ logger: true })
 
@@ -20,6 +21,7 @@ await app.register(multipart, {
 await app.register(authRoutes)
 await app.register(cisesRoutes)
 await app.register(updRoutes)
+await app.register(plansRoutes)
 
 app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 

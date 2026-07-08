@@ -1,3 +1,5 @@
+export type ApiEnv = 'sandbox' | 'prod'
+
 export interface AuthStatus {
   authenticated: boolean
   tokenExpiresAt: string | null
@@ -29,6 +31,25 @@ export interface UpdDocument {
   seller: string | undefined
   buyer: string | undefined
   fileName: string
+}
+
+export interface ApiErrorLog {
+  request: {
+    method: string
+    url: string
+    headers: Record<string, string>
+    body: unknown
+  }
+  response: {
+    statusCode: number
+    headers: Record<string, string>
+    body: unknown
+  }
+}
+
+export interface ApiErrorResponse {
+  error: string
+  debugInfo?: ApiErrorLog
 }
 
 export interface UpdUploadResponse {

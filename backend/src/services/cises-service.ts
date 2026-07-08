@@ -1,5 +1,6 @@
 import got from 'got'
-import { config } from '../config.js'
+import { config, envUrls } from '../config.js'
+import type { TrueApiEnv } from '../config.js'
 import { getCachedToken, clearToken } from './auth-service.js'
 import type {
   CisInfoResponse,
@@ -9,12 +10,14 @@ import type {
   SingleCodeResult,
 } from '../types/index.js'
 
-const apiClient = got.extend({
-  prefixUrl: config.trueApi.baseUrl,
-  responseType: 'json',
-})
+function apiClient(env: TrueApiEnv) {
+  return got.extend({
+    prefixUrl: envUrls[env].baseUrl,
+    responseType: 'json',
+  })
+}
 
-export async function checkCodesPublic(body: CheckCodesRequest): Promise<CheckCodesResponse> {
+export async function checkCodesPublic(env: TrueApiEnv, body: CheckCodesRequest): Promise<CheckCodesResponse> {
   const results: SingleCodeResult[] = []
   const queue = [...body.codes]
 
@@ -23,7 +26,7 @@ export async function checkCodesPublic(body: CheckCodesRequest): Promise<CheckCo
       const code = queue.shift()!
       try {
         const { body: response } = await got.get<PublicCheckResponse>(
-          `${config.trueApi.publicCheckUrl}?code=${encodeURIComponent(code)}`,
+          `${envUrls[env].publicCheckUrl}?code=${encodeURIComponent(code)}`,
           { responseType: 'json', timeout: { request: 10000 } }
         )
         results.push({
@@ -50,21 +53,21 @@ export async function checkCodesPublic(body: CheckCodesRequest): Promise<CheckCo
   return buildResponse(results)
 }
 
-function getToken(): string {
-  const token = getCachedToken()
+function getToken(env: TrueApiEnv): string {
+  const token = getCachedToken(env)
   if (!token) throw new AppError('Not authenticated', 401)
   return token
 }
 
-export async function checkCodesAuth(body: CheckCodesRequest): Promise<CheckCodesResponse> {
-  const token = getToken()
+export async function checkCodesAuth(env: TrueApiEnv, body: CheckCodesRequest): Promise<CheckCodesResponse> {
+  const token = getToken(env)
   const results: SingleCodeResult[] = []
 
   try {
-    await processBatch(body.codes, token, results, 0)
+    await processBatch(env, body.codes, token, results, 0)
   } catch (err) {
     if (err instanceof AppError && err.statusCode === 401) {
-      clearToken()
+      clearToken(env)
       throw err
     }
     for (const code of body.codes) {
@@ -77,8 +80,58 @@ export async function checkCodesAuth(body: CheckCodesRequest): Promise<CheckCode
   return buildResponse(results)
 }
 
+export interface ApiDebugInfo {
+  request: {
+    method: string
+    url: string
+    headers: Record<string, string>
+    body: unknown
+  }
+  response: {
+    statusCode: number
+    headers: Record<string, string>
+    body: unknown
+  }
+}
+
+export function extractDebugInfo(err: unknown): ApiDebugInfo | undefined {
+  if (!err || typeof err !== 'object') return undefined
+  const gotErr = err as Record<string, unknown>
+  const response = gotErr.response as Record<string, unknown> | undefined
+  const options = gotErr.options as Record<string, unknown> | undefined
+  if (!response) return undefined
+
+  const reqHeaders = options?.headers as Record<string, string> | undefined
+  const cleanHeaders: Record<string, string> = {}
+  if (reqHeaders) {
+    for (const [k, v] of Object.entries(reqHeaders)) {
+      if (k.toLowerCase() === 'authorization') {
+        cleanHeaders[k] = 'Bearer ***'
+      } else {
+        cleanHeaders[k] = String(v)
+      }
+    }
+  }
+
+  const resHeaders = response.headers as Record<string, string> | undefined
+
+  return {
+    request: {
+      method: String(options?.method || 'POST'),
+      url: String(response.requestUrl || (options?.url?.toString()) || 'unknown'),
+      headers: cleanHeaders,
+      body: options?.json || options?.body || null,
+    },
+    response: {
+      statusCode: Number(response.statusCode),
+      headers: resHeaders || {},
+      body: response.body || null,
+    },
+  }
+}
+
 async function processBatch(
-  codes: string[], token: string, results: SingleCodeResult[], batchIndex: number
+  env: TrueApiEnv, codes: string[], token: string, results: SingleCodeResult[], batchIndex: number
 ): Promise<void> {
   if (batchIndex >= codes.length) return
 
@@ -86,16 +139,16 @@ async function processBatch(
   const end = Math.min(start + config.trueApi.batchSize, codes.length)
   const batch = codes.slice(start, end)
 
-  await retryOnError(batch, token, results)
+  await retryOnError(env, batch, token, results)
 
-  await processBatch(codes, token, results, end)
+  await processBatch(env, codes, token, results, end)
 }
 
 async function retryOnError(
-  batch: string[], token: string, results: SingleCodeResult[], attempt = 0
+  env: TrueApiEnv, batch: string[], token: string, results: SingleCodeResult[], attempt = 0
 ): Promise<void> {
   try {
-    const { body: response } = await apiClient.post<CisInfoResponse>(
+    const { body: response } = await apiClient(env).post<CisInfoResponse>(
       config.trueApi.cisesInfoPath,
       {
         json: { cisList: batch },
@@ -118,14 +171,15 @@ async function retryOnError(
     }
   } catch (err) {
     if (is401(err)) {
-      throw new AppError('Token expired', 401)
+      const debugInfo = extractDebugInfo(err)
+      throw new AppError('Token expired', 401, debugInfo)
     }
 
     const isRetryable = isRetryableError(err)
     if (isRetryable && attempt < config.trueApi.maxRetries) {
       const delay = Math.pow(2, attempt) * 500
       await sleep(delay)
-      return retryOnError(batch, token, results, attempt + 1)
+      return retryOnError(env, batch, token, results, attempt + 1)
     }
 
     throw err
@@ -151,9 +205,11 @@ function sleep(ms: number): Promise<void> {
 
 export class AppError extends Error {
   statusCode: number
-  constructor(message: string, statusCode: number) {
+  debugInfo?: ApiDebugInfo
+  constructor(message: string, statusCode: number, debugInfo?: ApiDebugInfo) {
     super(message)
     this.statusCode = statusCode
+    this.debugInfo = debugInfo
   }
 }
 
