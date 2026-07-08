@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { AuthPage } from './pages/AuthPage'
 import { CheckCodesPage } from './pages/CheckCodesPage'
 import { UploadUpdPage } from './pages/UploadUpdPage'
+import { PlansPage } from './pages/PlansPage'
 import { setOnUnauthorized, logout as apiLogout, getEnv, setEnv, getAuthStatus } from './services/api'
 import type { ApiEnv } from './types'
 
-type Page = 'auth' | 'check' | 'upload'
+type Page = 'auth' | 'check' | 'upload' | 'plans'
 
 export default function App() {
   const [page, setPage] = useState<Page>('auth')
@@ -77,6 +78,10 @@ export default function App() {
             disabled={!authenticated}>
             Загрузка УПД
           </button>
+          <button onClick={() => setPage('plans')}
+            style={navBtnStyle(page === 'plans')}>
+            Планы
+          </button>
         </nav>
         <div style={{ marginLeft: 'auto', fontSize: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
           <label>
@@ -119,6 +124,7 @@ export default function App() {
         {page === 'auth' && <AuthPage key={env} onAuth={handleAuth} />}
         {page === 'check' && <CheckCodesPage key={env} />}
         {page === 'upload' && <UploadUpdPage key={env} />}
+        {page === 'plans' && <PlansPage key={env} />}
       </main>
     </div>
   )

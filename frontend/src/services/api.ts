@@ -102,5 +102,5 @@ export async function getPlansList(): Promise<{ name: string; path: string; size
 }
 
 export async function getPlanContent(filename: string): Promise<{ name: string; content: string }> {
-  return request(`/api/plans/${filename}`)
+  return request(`/api/plans/${encodeURIComponent(filename)}`)
 }
