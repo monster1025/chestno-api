@@ -8,8 +8,14 @@ import { updRoutes } from './routes/upd.js'
 
 const app = Fastify({ logger: true })
 
-await app.register(cors, { origin: true })
-await app.register(multipart)
+await app.register(cors, { origin: config.corsOrigin })
+await app.register(multipart, {
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 1,
+  },
+  throwFileSizeLimit: true,
+})
 
 await app.register(authRoutes)
 await app.register(cisesRoutes)

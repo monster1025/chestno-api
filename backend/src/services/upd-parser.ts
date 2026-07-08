@@ -11,7 +11,6 @@ export interface ParsedUpd {
 
 export async function parseUpdXml(xmlContent: string, fileName: string): Promise<ParsedUpd> {
   const parsed = await parseStringPromise(xmlContent, {
-    explicitArray: false,
     ignoreAttrs: false,
     mergeAttrs: true,
   })
@@ -21,42 +20,44 @@ export async function parseUpdXml(xmlContent: string, fileName: string): Promise
   return {
     codes,
     fileName,
-    documentNumber: extractField(parsed, 'Документ', 'НомерДок'),
-    documentDate: extractField(parsed, 'Документ', 'ДатаДок'),
-    sellerName: extractField(parsed, 'Документ', 'ТаблСчФакт', 'СведПрод', 'НаимОрг'),
-    buyerName: extractField(parsed, 'Документ', 'ТаблСчФакт', 'СведПокуп', 'НаимОрг'),
+    documentNumber: extractField(parsed, ['Документ', 'НомерДок']),
+    documentDate: extractField(parsed, ['Документ', 'ДатаДок']),
+    sellerName: extractField(parsed, ['Документ', 'ТаблСчФакт', 'СведПрод', 'НаимОрг']),
+    buyerName: extractField(parsed, ['Документ', 'ТаблСчФакт', 'СведПокуп', 'НаимОрг']),
   }
 }
 
 function extractCodes(obj: Record<string, unknown>): string[] {
   const codes: string[] = []
+  const documents = asArray<Record<string, unknown>>(obj['Документ'])
 
-  try {
-    const document = obj['Документ'] as Record<string, unknown>
-    const table = document['ТаблСчФакт'] as Record<string, unknown>
-    const items = table['СведТов'] as Record<string, unknown>[]
+  for (const document of documents) {
+    try {
+      const table = document['ТаблСчФакт'] as Record<string, unknown> | undefined
+      if (!table) continue
+      const items = asArray<Record<string, unknown>>(table['СведТов'])
 
-    if (Array.isArray(items)) {
       for (const item of items) {
-        const extInfo = item['ДопСведТов'] as Record<string, unknown>
-        if (extInfo) {
-          const kmCodes = extInfo['НомСредИдентТов']
-          if (Array.isArray(kmCodes)) {
-            codes.push(...kmCodes.filter(Boolean))
-          } else if (typeof kmCodes === 'string') {
-            codes.push(kmCodes)
-          }
+        const extInfo = asArray<Record<string, unknown>>(item['ДопСведТов'])
+        for (const info of extInfo) {
+          const kmCodes = asArray<string>(info['НомСредИдентТов'])
+          codes.push(...kmCodes.filter(Boolean))
         }
       }
+    } catch {
+      console.warn('upd-parser: failed to extract codes from a document')
     }
-  } catch {
-    // XML structure may vary; return what we found
   }
 
   return codes
 }
 
-function extractField(obj: Record<string, unknown>, ...keys: string[]): string | undefined {
+function asArray<T>(value: unknown): T[] {
+  if (value == null) return []
+  return Array.isArray(value) ? value as T[] : [value as T]
+}
+
+function extractField(obj: Record<string, unknown>, keys: string[]): string | undefined {
   let current: unknown = obj
   for (const key of keys) {
     if (current && typeof current === 'object') {

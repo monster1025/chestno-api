@@ -2,11 +2,27 @@ import type { AuthStatus, CheckCodesResponse, UpdUploadResponse } from '../types
 
 const BASE_URL = ''
 
+let onUnauthorized: (() => void) | null = null
+
+export function setOnUnauthorized(cb: () => void): void {
+  onUnauthorized = cb
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (options?.headers) {
+    Object.assign(headers, options.headers)
+  }
+
   const res = await fetch(`${BASE_URL}${url}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers,
     ...options,
   })
+
+  if (res.status === 401 && onUnauthorized) {
+    onUnauthorized()
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || `HTTP ${res.status}`)
@@ -19,7 +35,7 @@ export async function getAuthKey(): Promise<{ uuid: string; data: string }> {
 }
 
 export async function signIn(uuid: string, data: string): Promise<{ token: string }> {
-  return request('/auth/signin', {
+  return request('/auth/simpleSignIn', {
     method: 'POST',
     body: JSON.stringify({ uuid, data }),
   })
@@ -27,6 +43,10 @@ export async function signIn(uuid: string, data: string): Promise<{ token: strin
 
 export async function getAuthStatus(): Promise<AuthStatus> {
   return request('/auth/status')
+}
+
+export async function logout(): Promise<void> {
+  await request('/auth/logout', { method: 'POST' })
 }
 
 export async function checkCodesPublic(codes: string[]): Promise<CheckCodesResponse> {
@@ -51,6 +71,10 @@ export async function uploadUpd(file: File): Promise<UpdUploadResponse> {
     method: 'POST',
     body: formData,
   })
+
+  if (res.status === 401 && onUnauthorized) {
+    onUnauthorized()
+  }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))

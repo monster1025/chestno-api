@@ -1,13 +1,32 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AuthPage } from './pages/AuthPage'
 import { CheckCodesPage } from './pages/CheckCodesPage'
 import { UploadUpdPage } from './pages/UploadUpdPage'
+import { setOnUnauthorized, logout as apiLogout } from './services/api'
 
 type Page = 'auth' | 'check' | 'upload'
 
 export default function App() {
   const [page, setPage] = useState<Page>('auth')
   const [authenticated, setAuthenticated] = useState(false)
+
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      setAuthenticated(false)
+      apiLogout().catch(() => {})
+    })
+  }, [])
+
+  function handleAuth() {
+    setAuthenticated(true)
+    setPage('check')
+  }
+
+  function handleLogout() {
+    setAuthenticated(false)
+    apiLogout().catch(() => {})
+    setPage('auth')
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
@@ -26,21 +45,37 @@ export default function App() {
             Авторизация
           </button>
           <button onClick={() => setPage('check')}
-            style={navBtnStyle(page === 'check')}>
+            style={navBtnStyle(page === 'check')}
+            disabled={!authenticated}>
             Проверка кода
           </button>
           <button onClick={() => setPage('upload')}
-            style={navBtnStyle(page === 'upload')}>
+            style={navBtnStyle(page === 'upload')}
+            disabled={!authenticated}>
             Загрузка УПД
           </button>
         </nav>
-        <div style={{ marginLeft: 'auto', fontSize: 13 }}>
+        <div style={{ marginLeft: 'auto', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
           {authenticated ? '✅ Авторизован' : '❌ Не авторизован'}
+          {authenticated && (
+            <button onClick={handleLogout}
+              style={{
+                background: 'rgba(255,255,255,0.15)',
+                color: 'white',
+                border: '1px solid rgba(255,255,255,0.3)',
+                borderRadius: 4,
+                padding: '3px 10px',
+                cursor: 'pointer',
+                fontSize: 12,
+              }}>
+              Выйти
+            </button>
+          )}
         </div>
       </header>
 
       <main style={{ padding: 24, maxWidth: 960, margin: '0 auto' }}>
-        {page === 'auth' && <AuthPage onAuth={() => setAuthenticated(true)} />}
+        {page === 'auth' && <AuthPage onAuth={handleAuth} />}
         {page === 'check' && <CheckCodesPage />}
         {page === 'upload' && <UploadUpdPage />}
       </main>

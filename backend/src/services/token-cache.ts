@@ -23,3 +23,7 @@ export function hasToken(): boolean {
 export function getTokenTTL(): number | undefined {
   return cache.getTtl(TOKEN_KEY)
 }
+
+export function invalidateToken(): void {
+  cache.del(TOKEN_KEY)
+}

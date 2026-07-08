@@ -3,6 +3,8 @@ import { uploadUpd } from '../services/api'
 import { ResultsTable } from '../components/ResultsTable'
 import type { UpdUploadResponse } from '../types'
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024
+
 export function UploadUpdPage() {
   const [file, setFile] = useState<File | null>(null)
   const [response, setResponse] = useState<UpdUploadResponse | null>(null)
@@ -10,6 +12,16 @@ export function UploadUpdPage() {
   const [error, setError] = useState('')
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  function setFileIfValid(f: File | null) {
+    if (!f) { setFile(null); return }
+    if (f.size > MAX_FILE_SIZE) {
+      setError(`Файл слишком большой (максимум 10MB)`)
+      return
+    }
+    setError('')
+    setFile(f)
+  }
 
   async function handleUpload() {
     if (!file) return
@@ -28,8 +40,7 @@ export function UploadUpdPage() {
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragging(false)
-    const f = e.dataTransfer.files[0]
-    if (f) setFile(f)
+    setFileIfValid(e.dataTransfer.files[0] || null)
   }
 
   return (
@@ -69,9 +80,9 @@ export function UploadUpdPage() {
         <input
           ref={inputRef}
           type="file"
-          accept=".xml"
+          accept=".xml,.XML"
           hidden
-          onChange={e => setFile(e.target.files?.[0] || null)}
+          onChange={e => setFileIfValid(e.target.files?.[0] || null)}
         />
       </div>
 

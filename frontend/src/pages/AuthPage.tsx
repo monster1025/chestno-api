@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getAuthStatus, getAuthKey, signIn } from '../services/api'
+import { isCadesPluginAvailable, listCertificates, signWithCadesPlugin } from '../services/cadesplugin'
+import type { CertInfo } from '../services/cadesplugin'
 
 interface Props {
   onAuth: () => void
@@ -7,27 +9,25 @@ interface Props {
 
 export function AuthPage({ onAuth }: Props) {
   const [status, setStatus] = useState<{ authenticated: boolean; tokenExpiresAt: string | null } | null>(null)
-  const [uuid, setUuid] = useState('')
-  const [dataToSign, setDataToSign] = useState('')
-  const [signature, setSignature] = useState('')
+  const [hasPlugin, setHasPlugin] = useState<boolean | null>(null)
+  const [certs, setCerts] = useState<CertInfo[]>([])
+  const [selectedThumbprint, setSelectedThumbprint] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     getAuthStatus().then(setStatus).catch(() => {})
+    checkPlugin()
   }, [])
 
-  async function handleGetKey() {
-    setLoading(true)
-    setError('')
-    try {
-      const { uuid, data } = await getAuthKey()
-      setUuid(uuid)
-      setDataToSign(data)
-    } catch (err) {
-      setError(String(err))
-    } finally {
-      setLoading(false)
+  async function checkPlugin() {
+    const available = await isCadesPluginAvailable()
+    setHasPlugin(available)
+    if (available) {
+      try {
+        const certList = await listCertificates()
+        setCerts(certList)
+      } catch {}
     }
   }
 
@@ -35,12 +35,14 @@ export function AuthPage({ onAuth }: Props) {
     setLoading(true)
     setError('')
     try {
+      const { uuid, data } = await getAuthKey()
+      const signature = await signWithCadesPlugin(data, selectedThumbprint || undefined)
       await signIn(uuid, signature)
       const s = await getAuthStatus()
       setStatus(s)
       if (s.authenticated) onAuth()
     } catch (err) {
-      setError(String(err))
+      setError(String(err instanceof Error ? err.message : err))
     } finally {
       setLoading(false)
     }
@@ -50,64 +52,83 @@ export function AuthPage({ onAuth }: Props) {
     <div>
       <h2>Авторизация в True API</h2>
 
-      {status && (
+      {hasPlugin === false && (
         <div style={{
           padding: 12,
-          background: status.authenticated ? '#e8f5e9' : '#fff3e0',
+          background: '#fff3e0',
+          borderRadius: 6,
+          marginBottom: 16,
+          fontSize: 14,
+        }}>
+          ⚠️ КриптоПро Browser Plugin не обнаружен.
+          <br />
+          <a href="https://cryptopro.ru/products/cades/plugin" target="_blank" rel="noopener noreferrer">
+            Установите расширение для браузера
+          </a>
+        </div>
+      )}
+
+      {status?.authenticated && (
+        <div style={{
+          padding: 12,
+          background: '#e8f5e9',
           borderRadius: 6,
           marginBottom: 16,
         }}>
-          <strong>Статус:</strong>{' '}
-          {status.authenticated ? '✅ Авторизован' : '❌ Не авторизован'}
-          {status.tokenExpiresAt && (
-            <div style={{ fontSize: 13, marginTop: 4 }}>
-              Токен истекает: {new Date(status.tokenExpiresAt).toLocaleString()}
-            </div>
-          )}
+          <strong>✅ Авторизован</strong>
+          <div style={{ fontSize: 13, marginTop: 4 }}>
+            Токен истекает: {new Date(status.tokenExpiresAt!).toLocaleString()}
+          </div>
         </div>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 500 }}>
-        <button onClick={handleGetKey} disabled={loading}
-          style={btnStyle}>
-          {loading ? 'Загрузка...' : '1. Получить ключ авторизации'}
-        </button>
-
-        {dataToSign && (
-          <div style={{ background: '#f5f5f5', padding: 8, borderRadius: 4, fontSize: 12, wordBreak: 'break-all' }}>
-            <strong>Данные для подписи:</strong><br />
-            {dataToSign}
+        {hasPlugin && certs.length > 0 && (
+          <div>
+            <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 4 }}>
+              Сертификат:
+            </label>
+            <select
+              value={selectedThumbprint}
+              onChange={e => setSelectedThumbprint(e.target.value)}
+              style={selectStyle}
+            >
+              <option value="">— первый доступный —</option>
+              {certs.map(c => (
+                <option key={c.thumbprint} value={c.thumbprint} disabled={!c.valid}>
+                  {c.name} ({c.valid ? `до ${new Date(c.validTo).toLocaleDateString()}` : 'просрочен'})
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
-        {uuid && (
-          <>
-            <textarea
-              placeholder="Вставьте подпись (base64) из КриптоПро..."
-              value={signature}
-              onChange={e => setSignature(e.target.value)}
-              rows={4}
-              style={inputStyle}
-            />
-
-            <button onClick={handleSignIn} disabled={loading || !signature}
-              style={btnStyle}>
-              {loading ? 'Подписание...' : '2. Отправить подпись'}
-            </button>
-          </>
+        {certs.length === 0 && hasPlugin && (
+          <div style={{ color: '#e65100', fontSize: 13 }}>
+            Нет доступных сертификатов. Установите УКЭП в систему.
+          </div>
         )}
 
+        <button
+          onClick={handleSignIn}
+          disabled={loading || !hasPlugin || (hasPlugin && certs.length === 0)}
+          style={btnStyle}
+        >
+          {loading ? 'Подписание...' : 'Подписать и войти'}
+        </button>
+
         {error && (
-          <div style={{ color: '#c62828', fontSize: 14 }}>Ошибка: {error}</div>
+          <div style={{ color: '#c62828', fontSize: 14, marginTop: 8 }}>Ошибка: {error}</div>
         )}
       </div>
 
       <div style={{ marginTop: 24, fontSize: 13, color: '#666' }}>
-        <h4>Инструкция:</h4>
+        <h4>Процесс авторизации:</h4>
         <ol>
-          <li>Нажмите «Получить ключ авторизации» — система получит UUID и случайные данные для подписи</li>
-          <li>Подпишите полученные данные в КриптоПро (CAdES-BES, присоединённая подпись, base64)</li>
-          <li>Вставьте подпись в поле выше и нажмите «Отправить подпись»</li>
+          <li>Выберите сертификат УКЭП из списка (или будет использован первый доступный)</li>
+          <li>Нажмите «Подписать и войти»</li>
+          <li>КриптоПро подпишет данные и отправит их на сервер</li>
+          <li>Сервер кеширует токен доступа к True API (действует 10 часов)</li>
         </ol>
       </div>
     </div>
@@ -124,12 +145,11 @@ const btnStyle: React.CSSProperties = {
   fontSize: 14,
 }
 
-const inputStyle: React.CSSProperties = {
+const selectStyle: React.CSSProperties = {
   padding: 8,
   border: '1px solid #ccc',
   borderRadius: 4,
   fontSize: 13,
-  fontFamily: 'monospace',
   width: '100%',
   boxSizing: 'border-box',
 }
