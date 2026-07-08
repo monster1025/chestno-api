@@ -45,8 +45,7 @@ export default function App() {
             Авторизация
           </button>
           <button onClick={() => setPage('check')}
-            style={navBtnStyle(page === 'check')}
-            disabled={!authenticated}>
+            style={navBtnStyle(page === 'check')}>
             Проверка кода
           </button>
           <button onClick={() => setPage('upload')}
