@@ -38,9 +38,17 @@ export interface CisInfoResponseItem {
 
 export interface PublicCheckResponse {
   code: string
-  found: boolean
-  valid: boolean
-  status: string
+  // Схема ответа mobile.api.crpt.ru/mobile/check (эндпоинт мобильного приложения)
+  codeFounded?: boolean
+  checkResult?: boolean
+  status?: string
+  outerStatus?: string
+  productName?: string
+  codeResolveData?: {
+    valid?: boolean
+    found?: boolean
+    verified?: boolean
+  }
 }
 
 export interface CheckCodesRequest {

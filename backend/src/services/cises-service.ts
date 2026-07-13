@@ -12,9 +12,12 @@ import type {
   ApiDebugInfo,
 } from '../types/index.js'
 
-function loggedClient(prefixUrl: string) {
+// Статусы КМ, при которых код считается действительным (в обороте)
+const VALID_STATUSES = ['INTRODUCED', 'APPLIED', 'EMITTED']
+
+function loggedClient(prefixUrl?: string) {
   return got.extend({
-    prefixUrl,
+    ...(prefixUrl ? { prefixUrl } : {}),
     responseType: 'json',
     hooks: {
       beforeRequest: [
@@ -59,15 +62,19 @@ export async function checkCodesPublic(env: TrueApiEnv, body: CheckCodesRequest)
     while (queue.length > 0) {
       const code = queue.shift()!
       try {
-        const { body: response } = await loggedClient(envUrls[env].publicCheckUrl).get<PublicCheckResponse>(
-          `?code=${encodeURIComponent(code)}`,
-          { timeout: { request: 10000 } }
+        // Полный URL передаём как input (без prefixUrl) + searchParams,
+        // иначе got добавляет лишний слэш (.../check/?code=) → 404.
+        const { body: response } = await loggedClient().get<PublicCheckResponse>(
+          envUrls[env].publicCheckUrl,
+          { searchParams: { code }, timeout: { request: 10000 } }
         )
+        const status = response.outerStatus || response.status || 'UNKNOWN'
         results.push({
-          code: response.code,
-          found: response.found,
-          valid: response.valid,
-          status: response.status,
+          code: response.code || code,
+          found: response.codeFounded ?? response.codeResolveData?.found ?? false,
+          valid: VALID_STATUSES.includes(status),
+          status,
+          productName: response.productName,
         })
       } catch {
         results.push({
@@ -259,7 +266,7 @@ async function retryOnError(
     results.push({
       code: ci.requestedCis,
       found: !!ci.cis && !item.errorCode,
-      valid: ci.status === 'INTRODUCED' || ci.status === 'APPLIED' || ci.status === 'EMITTED',
+      valid: VALID_STATUSES.includes(ci.status || ''),
       status: item.errorCode || ci.status || 'UNKNOWN',
       gtin: ci.gtin,
       productName: ci.productName,
