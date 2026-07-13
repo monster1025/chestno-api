@@ -23,6 +23,7 @@ export interface CheckCodesResponse {
   validCount: number
   invalidCount: number
   errorCount: number
+  debugInfo?: ApiDebugInfo
 }
 
 export interface UpdDocument {
@@ -33,7 +34,7 @@ export interface UpdDocument {
   fileName: string
 }
 
-export interface ApiErrorLog {
+export interface ApiDebugInfo {
   request: {
     method: string
     url: string
@@ -44,12 +45,14 @@ export interface ApiErrorLog {
     statusCode: number
     headers: Record<string, string>
     body: unknown
+    errorCode?: string
+    errorMessage?: string
   }
 }
 
 export interface ApiErrorResponse {
   error: string
-  debugInfo?: ApiErrorLog
+  debugInfo?: ApiDebugInfo
 }
 
 export interface UpdUploadResponse {

@@ -6,16 +6,13 @@ export interface AuthKeyResponse {
 export interface AuthSignInRequest {
   uuid: string
   data: string
+  inn?: string
 }
 
 export interface AuthSignInResponse {
   token: string
   uuidToken?: string
   expireDate?: string
-}
-
-export interface CisInfoRequest {
-  cisList: string[]
 }
 
 export interface CisInfoItem {
@@ -33,8 +30,10 @@ export interface CisInfoItem {
   error?: string
 }
 
-export interface CisInfoResponse {
-  cisInfo: CisInfoItem[]
+export interface CisInfoResponseItem {
+  cisInfo: CisInfoItem
+  errorMessage?: string | null
+  errorCode?: string | null
 }
 
 export interface PublicCheckResponse {
@@ -46,6 +45,22 @@ export interface PublicCheckResponse {
 
 export interface CheckCodesRequest {
   codes: string[]
+}
+
+export interface ApiDebugInfo {
+  request: {
+    method: string
+    url: string
+    headers: Record<string, string>
+    body: unknown
+  }
+  response: {
+    statusCode: number
+    headers: Record<string, string>
+    body: unknown
+    errorCode?: string
+    errorMessage?: string
+  }
 }
 
 export interface SingleCodeResult {
@@ -66,4 +81,5 @@ export interface CheckCodesResponse {
   validCount: number
   invalidCount: number
   errorCount: number
+  debugInfo?: ApiDebugInfo
 }

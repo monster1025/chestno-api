@@ -1,20 +1,54 @@
 import got from 'got'
+import type { Response } from 'got'
 import { config, envUrls } from '../config.js'
 import type { TrueApiEnv } from '../config.js'
 import { getCachedToken, clearToken } from './auth-service.js'
 import type {
-  CisInfoResponse,
+  CisInfoResponseItem,
   PublicCheckResponse,
   CheckCodesRequest,
   CheckCodesResponse,
   SingleCodeResult,
+  ApiDebugInfo,
 } from '../types/index.js'
 
-function apiClient(env: TrueApiEnv) {
+function loggedClient(prefixUrl: string) {
   return got.extend({
-    prefixUrl: envUrls[env].baseUrl,
+    prefixUrl,
     responseType: 'json',
+    hooks: {
+      beforeRequest: [
+        (options) => {
+          const headers = { ...options.headers } as Record<string, string>
+          if (headers.authorization) {
+            headers.authorization = 'Bearer ***'
+          }
+          console.log(JSON.stringify({
+            type: 'trueapi_request',
+            method: options.method,
+            url: String(options.url || ''),
+            headers,
+            body: options.json || options.body || null,
+          }))
+        },
+      ],
+      afterResponse: [
+        (response: Response) => {
+          console.log(JSON.stringify({
+            type: 'trueapi_response',
+            statusCode: response.statusCode,
+            url: response.requestUrl,
+            body: response.body,
+          }))
+          return response
+        },
+      ],
+    },
   })
+}
+
+function apiClient(env: TrueApiEnv) {
+  return loggedClient(envUrls[env].baseUrl)
 }
 
 export async function checkCodesPublic(env: TrueApiEnv, body: CheckCodesRequest): Promise<CheckCodesResponse> {
@@ -25,9 +59,9 @@ export async function checkCodesPublic(env: TrueApiEnv, body: CheckCodesRequest)
     while (queue.length > 0) {
       const code = queue.shift()!
       try {
-        const { body: response } = await got.get<PublicCheckResponse>(
-          `${envUrls[env].publicCheckUrl}?code=${encodeURIComponent(code)}`,
-          { responseType: 'json', timeout: { request: 10000 } }
+        const { body: response } = await loggedClient(envUrls[env].publicCheckUrl).get<PublicCheckResponse>(
+          `?code=${encodeURIComponent(code)}`,
+          { timeout: { request: 10000 } }
         )
         results.push({
           code: response.code,
@@ -59,9 +93,14 @@ function getToken(env: TrueApiEnv): string {
   return token
 }
 
-export async function checkCodesAuth(env: TrueApiEnv, body: CheckCodesRequest): Promise<CheckCodesResponse> {
+export async function checkCodesAuth(
+  env: TrueApiEnv,
+  body: CheckCodesRequest,
+  log?: (msg: string, data?: Record<string, unknown>) => void,
+): Promise<CheckCodesResponse> {
   const token = getToken(env)
   const results: SingleCodeResult[] = []
+  let debugInfo: ApiDebugInfo | undefined
 
   try {
     await processBatch(env, body.codes, token, results, 0)
@@ -70,6 +109,14 @@ export async function checkCodesAuth(env: TrueApiEnv, body: CheckCodesRequest): 
       clearToken(env)
       throw err
     }
+    if (err instanceof AppError) {
+      debugInfo = err.debugInfo
+      if (log) log('Auth API error (non-401)', { error: err.message, debugInfo })
+    } else {
+      debugInfo = extractDebugInfo(err)
+      if (log) log('Auth API error (non-401)', { error: String(err), debugInfo })
+    }
+
     for (const code of body.codes) {
       if (!results.find(r => r.code === code)) {
         results.push({ code, found: false, valid: false, status: 'ERROR', error: 'Auth API error' })
@@ -77,20 +124,46 @@ export async function checkCodesAuth(env: TrueApiEnv, body: CheckCodesRequest): 
     }
   }
 
-  return buildResponse(results)
+  return buildResponse(results, debugInfo)
 }
 
-export interface ApiDebugInfo {
-  request: {
-    method: string
-    url: string
-    headers: Record<string, string>
-    body: unknown
+function buildResponse(results: SingleCodeResult[], debugInfo?: ApiDebugInfo): CheckCodesResponse {
+  return {
+    results,
+    total: results.length,
+    validCount: results.filter(r => r.valid).length,
+    invalidCount: results.filter(r => !r.valid && !r.error).length,
+    errorCount: results.filter(r => !!r.error).length,
+    debugInfo,
   }
-  response: {
-    statusCode: number
-    headers: Record<string, string>
-    body: unknown
+}
+
+function extractRequestHeaders(options: Record<string, unknown> | undefined): Record<string, string> {
+  const reqHeaders = options?.headers as Record<string, string> | undefined
+  const clean: Record<string, string> = {}
+  if (reqHeaders) {
+    for (const [k, v] of Object.entries(reqHeaders)) {
+      clean[k] = k.toLowerCase() === 'authorization' ? 'Bearer ***' : String(v)
+    }
+  }
+  return clean
+}
+
+export function extractDebugInfoFromResponse<T>(response: Response<T>): ApiDebugInfo {
+  const req = response.request as unknown as Record<string, unknown> | undefined
+  const opts = req?.options as Record<string, unknown> | undefined
+  return {
+    request: {
+      method: String(opts?.method || 'POST'),
+      url: String(response.requestUrl || response.url || 'unknown'),
+      headers: extractRequestHeaders(opts),
+      body: (opts?.json || opts?.body) ?? null,
+    },
+    response: {
+      statusCode: response.statusCode,
+      headers: (response.headers || {}) as Record<string, string>,
+      body: response.body ?? null,
+    },
   }
 }
 
@@ -99,33 +172,37 @@ export function extractDebugInfo(err: unknown): ApiDebugInfo | undefined {
   const gotErr = err as Record<string, unknown>
   const response = gotErr.response as Record<string, unknown> | undefined
   const options = gotErr.options as Record<string, unknown> | undefined
-  if (!response) return undefined
 
-  const reqHeaders = options?.headers as Record<string, string> | undefined
-  const cleanHeaders: Record<string, string> = {}
-  if (reqHeaders) {
-    for (const [k, v] of Object.entries(reqHeaders)) {
-      if (k.toLowerCase() === 'authorization') {
-        cleanHeaders[k] = 'Bearer ***'
-      } else {
-        cleanHeaders[k] = String(v)
-      }
-    }
+  const code = gotErr.code ? String(gotErr.code) : undefined
+  const message = gotErr.message ? String(gotErr.message) : undefined
+
+  const cleanHeaders = extractRequestHeaders(options)
+
+  let reqUrl = 'unknown'
+  if (response?.requestUrl) {
+    reqUrl = String(response.requestUrl)
+  } else if (options) {
+    const u = (options as Record<string, unknown>).url
+    if (u) reqUrl = String(u)
+    else if ((options as Record<string, unknown>).href) reqUrl = String((options as Record<string, unknown>).href)
+    else if ((options as Record<string, unknown>).pathname) reqUrl = String((options as Record<string, unknown>).pathname)
   }
 
-  const resHeaders = response.headers as Record<string, string> | undefined
+  const resHeaders = response?.headers as Record<string, string> | undefined
 
   return {
     request: {
       method: String(options?.method || 'POST'),
-      url: String(response.requestUrl || (options?.url?.toString()) || 'unknown'),
+      url: reqUrl,
       headers: cleanHeaders,
       body: options?.json || options?.body || null,
     },
     response: {
-      statusCode: Number(response.statusCode),
+      statusCode: Number(response?.statusCode || 0),
       headers: resHeaders || {},
-      body: response.body || null,
+      body: response?.body || null,
+      errorCode: code,
+      errorMessage: message,
     },
   }
 }
@@ -147,56 +224,49 @@ async function processBatch(
 async function retryOnError(
   env: TrueApiEnv, batch: string[], token: string, results: SingleCodeResult[], attempt = 0
 ): Promise<void> {
-  try {
-    const { body: response } = await apiClient(env).post<CisInfoResponse>(
-      config.trueApi.cisesInfoPath,
-      {
-        json: { cisList: batch },
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: { request: 30000 },
-      }
-    )
-
-    for (const item of response.cisInfo) {
-      results.push({
-        code: item.requestedCis,
-        found: !!item.cis,
-        valid: item.status === 'INTRODUCED' || item.status === 'APPLIED' || item.status === 'EMITTED',
-        status: item.status || 'UNKNOWN',
-        gtin: item.gtin,
-        productName: item.productName,
-        producerName: item.producerName,
-        ownerName: item.ownerName,
-      })
+  const response = await apiClient(env).post<CisInfoResponseItem[]>(
+    config.trueApi.cisesInfoPath,
+    {
+      json: batch,
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: { request: 30000 },
+      throwHttpErrors: false,
     }
-  } catch (err) {
-    if (is401(err)) {
-      const debugInfo = extractDebugInfo(err)
-      throw new AppError('Token expired', 401, debugInfo)
-    }
+  )
 
-    const isRetryable = isRetryableError(err)
-    if (isRetryable && attempt < config.trueApi.maxRetries) {
-      const delay = Math.pow(2, attempt) * 500
-      await sleep(delay)
-      return retryOnError(env, batch, token, results, attempt + 1)
-    }
-
-    throw err
+  if (response.statusCode === 401) {
+    const debugInfo = extractDebugInfoFromResponse(response)
+    throw new AppError('Token expired', 401, debugInfo)
   }
-}
 
-function is401(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  return 'response' in err &&
-    (err as { response?: { statusCode?: number } }).response?.statusCode === 401
-}
+  if (response.statusCode === 429 || (response.statusCode >= 500 && attempt < config.trueApi.maxRetries)) {
+    const delay = Math.pow(2, attempt) * 500
+    await sleep(delay)
+    return retryOnError(env, batch, token, results, attempt + 1)
+  }
 
-function isRetryableError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return true
-  const statusCode = (err as { response?: { statusCode?: number } }).response?.statusCode
-  if (!statusCode) return true
-  return statusCode === 429 || statusCode >= 500
+  if (!response.body || !Array.isArray(response.body)) {
+    const debugInfo = extractDebugInfoFromResponse(response)
+    const apiErr = response.body && typeof response.body === 'object'
+      ? (response.body as Record<string, unknown>).error_message || ''
+      : ''
+    throw new AppError(`API error: ${apiErr || response.statusCode}`, response.statusCode, debugInfo)
+  }
+
+  const items = response.body as CisInfoResponseItem[]
+  for (const item of items) {
+    const ci = item.cisInfo
+    results.push({
+      code: ci.requestedCis,
+      found: !!ci.cis && !item.errorCode,
+      valid: ci.status === 'INTRODUCED' || ci.status === 'APPLIED' || ci.status === 'EMITTED',
+      status: item.errorCode || ci.status || 'UNKNOWN',
+      gtin: ci.gtin,
+      productName: ci.productName,
+      producerName: ci.producerName,
+      ownerName: ci.ownerName,
+    })
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -213,12 +283,4 @@ export class AppError extends Error {
   }
 }
 
-function buildResponse(results: SingleCodeResult[]): CheckCodesResponse {
-  return {
-    results,
-    total: results.length,
-    validCount: results.filter(r => r.valid).length,
-    invalidCount: results.filter(r => !r.valid && !r.error).length,
-    errorCount: results.filter(r => !!r.error).length,
-  }
-}
+

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getAuthStatus, getAuthKey, signIn } from '../services/api'
+import { getAuthStatus, getAuthKey, signIn, setTokenManually } from '../services/api'
 import type { RequestError } from '../services/api'
 import { isCadesPluginAvailable, listCertificates, signWithCadesPlugin } from '../services/cadesplugin'
 import type { CertInfo } from '../services/cadesplugin'
@@ -13,10 +13,13 @@ export function AuthPage({ onAuth }: Props) {
   const [hasPlugin, setHasPlugin] = useState<boolean | null>(null)
   const [certs, setCerts] = useState<CertInfo[]>([])
   const [selectedThumbprint, setSelectedThumbprint] = useState('')
+  const [inn, setInn] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [errorDebug, setErrorDebug] = useState<string | null>(null)
   const [debugExpanded, setDebugExpanded] = useState(false)
+  const [manualToken, setManualToken] = useState('')
+  const [manualLoading, setManualLoading] = useState(false)
 
   useEffect(() => {
     getAuthStatus().then(setStatus).catch(() => {})
@@ -34,6 +37,27 @@ export function AuthPage({ onAuth }: Props) {
     }
   }
 
+  async function handleSetToken() {
+    setManualLoading(true)
+    setError('')
+    setErrorDebug(null)
+    setDebugExpanded(false)
+    try {
+      await setTokenManually(manualToken)
+      const s = await getAuthStatus()
+      setStatus(s)
+      if (s.authenticated) onAuth()
+    } catch (err) {
+      const re = err as RequestError
+      setError(re.message)
+      if (re.debugInfo) {
+        setErrorDebug(JSON.stringify(re.debugInfo, null, 2))
+      }
+    } finally {
+      setManualLoading(false)
+    }
+  }
+
   async function handleSignIn() {
     setLoading(true)
     setError('')
@@ -42,7 +66,7 @@ export function AuthPage({ onAuth }: Props) {
     try {
       const { uuid, data } = await getAuthKey()
       const signature = await signWithCadesPlugin(data, selectedThumbprint || undefined)
-      await signIn(uuid, signature)
+      await signIn(uuid, signature, inn || undefined)
       const s = await getAuthStatus()
       setStatus(s)
       if (s.authenticated) onAuth()
@@ -92,6 +116,19 @@ export function AuthPage({ onAuth }: Props) {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 500 }}>
+        <div>
+          <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 4 }}>
+            ИНН организации:
+          </label>
+          <input
+            type="text"
+            value={inn}
+            onChange={e => setInn(e.target.value)}
+            placeholder="Введите ИНН для однозначной авторизации"
+            style={inputStyle}
+          />
+        </div>
+
         {hasPlugin && certs.length > 0 && (
           <div>
             <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 4 }}>
@@ -125,6 +162,39 @@ export function AuthPage({ onAuth }: Props) {
         >
           {loading ? 'Подписание...' : 'Подписать и войти'}
         </button>
+
+        <div style={{
+          borderTop: '1px solid #e0e0e0',
+          margin: '12px 0',
+          paddingTop: 16,
+        }}>
+          <label style={{ fontSize: 13, color: '#666', display: 'block', marginBottom: 4 }}>
+            Или введите готовый токен:
+          </label>
+          <textarea
+            value={manualToken}
+            onChange={e => setManualToken(e.target.value)}
+            placeholder="Вставьте токен доступа к True API"
+            rows={3}
+            style={{
+              ...inputStyle,
+              fontFamily: 'monospace',
+              fontSize: 12,
+              resize: 'vertical',
+            }}
+          />
+          <button
+            onClick={handleSetToken}
+            disabled={manualLoading || !manualToken.trim()}
+            style={{
+              ...btnStyle,
+              background: '#1565c0',
+              marginTop: 8,
+            }}
+          >
+            {manualLoading ? 'Сохранение...' : 'Сохранить токен'}
+          </button>
+        </div>
 
         {error && (
           <div style={{ color: '#c62828', fontSize: 14, marginTop: 8 }}>Ошибка: {error}</div>
@@ -190,6 +260,15 @@ const btnStyle: React.CSSProperties = {
 }
 
 const selectStyle: React.CSSProperties = {
+  padding: 8,
+  border: '1px solid #ccc',
+  borderRadius: 4,
+  fontSize: 13,
+  width: '100%',
+  boxSizing: 'border-box',
+}
+
+const inputStyle: React.CSSProperties = {
   padding: 8,
   border: '1px solid #ccc',
   borderRadius: 4,

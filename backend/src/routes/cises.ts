@@ -35,7 +35,7 @@ export async function cisesRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: CheckCodesRequest }>('/api/check-codes/auth', { schema: checkCodesSchema }, async (request, reply) => {
     const env = parseEnv(request.query as Record<string, string>)
     try {
-      return await checkCodesAuth(env, request.body)
+      return await checkCodesAuth(env, request.body, (msg, data) => request.log.error(data, msg))
     } catch (err) {
       if (err instanceof AppError) {
         return reply.status(err.statusCode).send({

@@ -38,7 +38,7 @@ async function handleError(res: Response, env: ApiEnv): Promise<never> {
 async function request<T>(url: string, options?: RequestInit & { env?: ApiEnv }): Promise<T> {
   const reqEnv = options?.env || currentEnv
   const headers: Record<string, string> = {}
-  if (!(options?.body instanceof FormData)) {
+  if (!(options?.body instanceof FormData) && options?.body) {
     headers['Content-Type'] = 'application/json'
   }
   if (options?.headers) {
@@ -59,10 +59,10 @@ export async function getAuthKey(env?: ApiEnv): Promise<{ uuid: string; data: st
   return request('/auth/key', { env })
 }
 
-export async function signIn(uuid: string, data: string, env?: ApiEnv): Promise<{ token: string }> {
+export async function signIn(uuid: string, data: string, inn?: string, env?: ApiEnv): Promise<{ token: string }> {
   return request('/auth/simpleSignIn', {
     method: 'POST',
-    body: JSON.stringify({ uuid, data }),
+    body: JSON.stringify({ uuid, data, inn }),
     env,
   })
 }
@@ -95,6 +95,14 @@ export async function uploadUpd(file: File, env?: ApiEnv): Promise<UpdUploadResp
   const formData = new FormData()
   formData.append('file', file)
   return request('/api/upload-upd', { method: 'POST', body: formData, env })
+}
+
+export async function setTokenManually(token: string, env?: ApiEnv): Promise<void> {
+  await request('/auth/setToken', {
+    method: 'POST',
+    body: JSON.stringify({ token }),
+    env,
+  })
 }
 
 export async function getPlansList(): Promise<{ name: string; path: string; size: number }[]> {

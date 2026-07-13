@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { checkCodesPublic, checkCodesAuth } from '../services/api'
 import type { RequestError } from '../services/api'
 import { ResultsTable } from '../components/ResultsTable'
-import type { CodeResult } from '../types'
+import type { CodeResult, CheckCodesResponse } from '../types'
 
 export function CheckCodesPage() {
   const [codesInput, setCodesInput] = useState('')
@@ -14,7 +14,7 @@ export function CheckCodesPage() {
 
   async function handleCheck(mode: 'public' | 'auth') {
     const codes = codesInput
-      .split(/[\n,;]+/)
+      .split('\n')
       .map(c => c.trim())
       .filter(Boolean)
 
@@ -29,8 +29,11 @@ export function CheckCodesPage() {
     setDebugExpanded(false)
     try {
       const fn = mode === 'public' ? checkCodesPublic : checkCodesAuth
-      const response = await fn(codes)
+      const response: CheckCodesResponse = await fn(codes)
       setResults(response.results)
+      if (response.debugInfo) {
+        setErrorDebug(JSON.stringify(response.debugInfo, null, 2))
+      }
     } catch (err) {
       const re = err as RequestError
       setError(re.message)
@@ -47,7 +50,7 @@ export function CheckCodesPage() {
       <h2>Проверка кодов маркировки (КМ)</h2>
 
       <textarea
-        placeholder="Введите коды маркировки (каждый с новой строки, через запятую или точку с запятой)"
+        placeholder="Введите коды маркировки (каждый с новой строки)"
         value={codesInput}
         onChange={e => setCodesInput(e.target.value)}
         rows={6}

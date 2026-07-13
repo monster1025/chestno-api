@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { TrueApiEnv } from '../config.js'
-import { getAuthKey, signIn, clearToken, getAuthStatus } from '../services/auth-service.js'
+import { getAuthKey, signIn, clearToken, getAuthStatus, setTokenDirect } from '../services/auth-service.js'
 import { AppError, extractDebugInfo } from '../services/cises-service.js'
 
 const VALID_ENVS = ['sandbox', 'prod']
@@ -18,6 +18,7 @@ const signInSchema = {
     properties: {
       uuid: { type: 'string' },
       data: { type: 'string' },
+      inn: { type: 'string' },
     },
   },
 }
@@ -43,11 +44,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
-  app.post<{ Body: { uuid: string; data: string } }>('/auth/simpleSignIn', { schema: signInSchema }, async (request, reply) => {
+  app.post<{ Body: { uuid: string; data: string; inn?: string } }>('/auth/simpleSignIn', { schema: signInSchema }, async (request, reply) => {
     const env = parseEnv(request.query as Record<string, string>)
     try {
-      const { uuid, data } = request.body
-      const result = await signIn(env, { uuid, data })
+      const { uuid, data, inn } = request.body
+      const result = await signIn(env, { uuid, data, inn })
+      request.log.info({ env, token: result.token }, 'auth: token received')
       return result
     } catch (err) {
       if (err instanceof AppError) {
@@ -72,6 +74,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post('/auth/logout', async (request) => {
     const env = parseEnv(request.query as Record<string, string>)
     clearToken(env)
+    return { success: true }
+  })
+
+  app.post<{ Body: { token: string } }>('/auth/setToken', async (request) => {
+    const env = parseEnv(request.query as Record<string, string>)
+    setTokenDirect(env, request.body.token)
+    request.log.info({ env, tokenPrefix: request.body.token.slice(0, 20) + '...' }, 'auth: token set manually')
     return { success: true }
   })
 }
