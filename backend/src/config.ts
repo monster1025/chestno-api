@@ -18,7 +18,7 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN || '*',
 
   trueApi: {
-    authPath: 'auth',
+    authPath: '/auth',
     cisesInfoPath: 'cises/info',
     codesCheckPath: 'codes/check',
     batchSize: 1000,
